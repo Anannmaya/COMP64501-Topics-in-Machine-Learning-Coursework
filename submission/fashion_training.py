@@ -13,6 +13,56 @@ import torch, torchvision
 from submission import engine
 from submission.fashion_model import Net
 
+def get_data_loaders(batch_size=64, val_fraction=0.1):
+    """
+    Create train, validation and test DataLoaders for Fashion-MNIST.
+    """
+    # 1) Transforms: convert to tensor and roughly normalise to [-1, 1]
+    transform = torchvision.transforms.Compose([
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize((0.5,), (0.5,))
+    ])
+
+    # 2) Full training dataset (60k images)
+    full_train = torchvision.datasets.FashionMNIST(
+        root="data",
+        train=True,
+        transform=transform,
+        download=True,
+    )
+
+    # 3) Split into train and validation
+    n_total = len(full_train)  # 60000
+    n_val = int(val_fraction * n_total)
+    n_train = n_total - n_val
+
+    train_data, val_data = torch.utils.data.random_split(
+        full_train,
+        [n_train, n_val],
+        generator=torch.Generator().manual_seed(42),  # reproducible split
+    )
+
+    # 4) Test dataset (10k images)
+    test_data = torchvision.datasets.FashionMNIST(
+        root="data",
+        train=False,
+        transform=transform,
+        download=True,
+    )
+
+    # 5) Wrap in DataLoaders
+    train_loader = torch.utils.data.DataLoader(
+        train_data, batch_size=batch_size, shuffle=True
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_data, batch_size=batch_size, shuffle=False
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_data, batch_size=batch_size, shuffle=False
+    )
+
+    return train_loader, val_loader, test_loader
+
 
 def train_fashion_model(fashion_mnist, 
                         n_epochs, 
@@ -24,41 +74,51 @@ def train_fashion_model(fashion_mnist,
     the function name, or return values, as this will be called during marking!
     (You can change the default values or add additional keyword arguments if needed.)
     """
-    # Optionally use GPU if available
-    if USE_GPU and torch.cuda.is_available():
-        device = torch.device('cuda')
-    else:
-        device = torch.device('cpu')
-    print(f"Using device: {device}")
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Create train-val split
-    train_size = int(0.8 * len(fashion_mnist))
-    val_size = len(fashion_mnist) - train_size
-    train_data, val_data = torch.utils.data.random_split(fashion_mnist, [train_size, val_size])
+    # 2) Data
+    train_loader, val_loader, test_loader = get_data_loaders(batch_size=batch_size)
 
-    # dataloaders
-    train_loader = torch.utils.data.DataLoader(train_data,
-                                             batch_size=batch_size,
-                                             shuffle=True,
-                                             )
-    val_loader = torch.utils.data.DataLoader(val_data,
-                                             batch_size=batch_size,
-                                             shuffle=False,
-                                             )
-
-    # Initialize model, loss function, and optimizer
-    model = Net()
-    model.to(device)
+    # 3) Model, loss, optimizer
+    model = Net().to(device)
     criterion = torch.nn.CrossEntropyLoss()
-    criterion.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    # Training loop
-    for epoch in range(n_epochs):
+    best_val_acc = 0.0
+    best_state_dict = None
+
+    # 4) Training loop over epochs
+    for epoch in range(1, n_epochs + 1):
+        # ---- Training step ----
         train_loss = engine.train(model, train_loader, criterion, optimizer, device)
-        print(f"Epoch [{epoch + 1}/{n_epochs}], Training Loss: {train_loss:.4f}")
-        val_loss, accuracy = engine.eval(model, val_loader, criterion, device)
-        print(f"Epoch [{epoch + 1}/{n_epochs}], Val Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}")
+
+        # ---- Validation step ----
+        val_loss, val_acc = engine.eval(model, val_loader, criterion, device)
+
+        print(
+            f"Epoch {epoch:02d}/{n_epochs} "
+            f"- train_loss: {train_loss:.4f} "
+            f"- val_loss: {val_loss:.4f} "
+            f"- val_acc: {val_acc:.4f}"
+        )
+
+        # ---- Track the best model by validation accuracy ----
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_state_dict = model.state_dict()
+
+    # 5) (Optional) Evaluate best model on test set for your own reference
+    if best_state_dict is not None:
+        # Load the best weights back into the model
+        model.load_state_dict(best_state_dict)
+        test_loss, test_acc = engine.eval(model, test_loader, criterion, device)
+        print(f"Final test_loss: {test_loss:.4f}  - test_acc: {test_acc:.4f}")
+    else:
+        # Fallback: if for some reason best_state_dict was never set,
+        # we just keep the current model weights.
+        best_state_dict = model.state_dict()
+
 
     # Return the model's state_dict (weights) - DO NOT CHANGE THIS
     return model.state_dict()

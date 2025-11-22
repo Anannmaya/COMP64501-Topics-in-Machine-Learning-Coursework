@@ -12,20 +12,48 @@ class Net(nn.Module):
     def __init__(self, input_size=28*28, hidden_size=128, num_classes=10):
         super(Net, self).__init__()
 
-        # We define the layers of our model here by instantiating layer objects.
-        # Here we define two fully connected (linear) layers.
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, num_classes)
+        # Convolutional feature extractor
+        self.features = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
 
-        # nn.init module contains initialization methods:
-        # https://docs.pytorch.org/docs/main/nn.init.html
-        # This particular one is called Kaiming initialization (also known as
-        # He initialization) described in He, K. et al. (2015)
-        nn.init.kaiming_normal_(self.fc1.weight)
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2),       # 28x28 -> 14x14
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+
+            nn.AdaptiveAvgPool2d(1)            # -> 64 x 1 x 1
+        )
+
+        # Small classifier
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(64, num_classes)
+        )
+
+        # Weight initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1.0)
+                nn.init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                nn.init.constant_(m.bias, 0.0)
 
     def forward(self, x):
-        # The forward pass defines the connectivity of the layers defined in __init__.
-        x = x.view(x.size(0), -1)  # flatten the input tensor (first dimension is batch size)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        if x.dim() == 2:
+            x = x.view(x.size(0), 1, 28, 28)
+
+        x = self.features(x)          # (B, 64, 1, 1)
+        x = x.view(x.size(0), -1)     # (B, 64)
+        x = self.classifier(x)        # (B, 10)
         return x
