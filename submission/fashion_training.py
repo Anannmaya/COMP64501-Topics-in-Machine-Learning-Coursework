@@ -17,51 +17,55 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
     """
     Create train, validation and test DataLoaders for Fashion-MNIST.
     """
-    # 1) Transforms: convert to tensor and roughly normalise to [-1, 1]
-    transform = torchvision.transforms.Compose([
+    # Train transform: light augmentation + normalisation
+    train_transform = torchvision.transforms.Compose([
+        torchvision.transforms.RandomHorizontalFlip(p=0.5),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize((0.5,), (0.5,))
     ])
 
-    # 2) Full training dataset (60k images)
+    # Eval transform: no randomness, just tensor + normalise
+    eval_transform = torchvision.transforms.Compose([
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize((0.5,), (0.5,))
+    ])
+
+    # Full training dataset (60k images) with TRAIN transform
     full_train = torchvision.datasets.FashionMNIST(
         root="data",
         train=True,
-        transform=transform,
+        transform=train_transform,
         download=True,
     )
 
-    # 3) Split into train and validation
-    n_total = len(full_train)  # 60000
+    # Split into train and validation
+    n_total = len(full_train)
     n_val = int(val_fraction * n_total)
     n_train = n_total - n_val
 
     train_data, val_data = torch.utils.data.random_split(
         full_train,
         [n_train, n_val],
-        generator=torch.Generator().manual_seed(42),  # reproducible split
+        generator=torch.Generator().manual_seed(42),
     )
 
-    # 4) Test dataset (10k images)
+    # For validation, override transform to eval_transform
+    val_data.dataset.transform = eval_transform
+
+    # Test dataset (10k images) with EVAL transform
     test_data = torchvision.datasets.FashionMNIST(
         root="data",
         train=False,
-        transform=transform,
+        transform=eval_transform,
         download=True,
     )
 
-    # 5) Wrap in DataLoaders
-    train_loader = torch.utils.data.DataLoader(
-        train_data, batch_size=batch_size, shuffle=True
-    )
-    val_loader = torch.utils.data.DataLoader(
-        val_data, batch_size=batch_size, shuffle=False
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_data, batch_size=batch_size, shuffle=False
-    )
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
+
 
 
 def train_fashion_model(fashion_mnist, 
@@ -182,9 +186,9 @@ def main():
     # TODO: this may be done within a loop for hyperparameter search / cross-validation
     model_weights = train_fashion_model(
         fashion_mnist,
-        n_epochs=25,          # train longer
+        n_epochs=30,          # train longer
         batch_size=64,
-        learning_rate=1e-3,
+        learning_rate=5e-4,
         USE_GPU=True
     )
 
