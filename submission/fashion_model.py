@@ -33,9 +33,13 @@ class Net(nn.Module):
 
         # Small classifier
         self.classifier = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(128, num_classes)
+            nn.Dropout(p=0.3),
+            nn.Linear(128, 32),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, num_classes)
         )
+
+
 
 
         # Weight initialization

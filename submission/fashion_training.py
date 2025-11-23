@@ -16,7 +16,11 @@ from submission.fashion_model import Net
 def get_data_loaders(batch_size=64, val_fraction=0.1):
     """
     Create train, validation and test DataLoaders for Fashion-MNIST.
+    Uses a train/val split of the official training set and a separate test set.
     """
+
+    # --- 1) Define transforms ---
+
     # Train transform: light augmentation + normalisation
     train_transform = torchvision.transforms.Compose([
         torchvision.transforms.RandomHorizontalFlip(p=0.5),
@@ -24,47 +28,80 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
         torchvision.transforms.Normalize((0.5,), (0.5,))
     ])
 
-    # Eval transform: no randomness, just tensor + normalise
+    # Eval transform: deterministic, no augmentation
     eval_transform = torchvision.transforms.Compose([
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize((0.5,), (0.5,))
     ])
 
-    # Full training dataset (60k images) with TRAIN transform
+    # --- 2) Base dataset to get size and indices ---
+
+    # Load once without transform just to know how many samples we have
+    base_train = torchvision.datasets.FashionMNIST(
+        root="data",
+        train=True,
+        download=True,
+        transform=None,   # we won't use this transform
+    )
+
+    n_total = len(base_train)               # 60,000
+    n_val = int(val_fraction * n_total)     # e.g. 6,000 for 0.1
+    n_train = n_total - n_val               # e.g. 54,000
+
+    # Deterministic split indices
+    generator = torch.Generator().manual_seed(42)
+    indices = torch.randperm(n_total, generator=generator)
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:]
+
+    # --- 3) Actual train/val datasets with different transforms ---
+
     full_train = torchvision.datasets.FashionMNIST(
         root="data",
         train=True,
+        download=False,
         transform=train_transform,
-        download=True,
+    )
+    full_val = torchvision.datasets.FashionMNIST(
+        root="data",
+        train=True,
+        download=False,
+        transform=eval_transform,
     )
 
-    # Split into train and validation
-    n_total = len(full_train)
-    n_val = int(val_fraction * n_total)
-    n_train = n_total - n_val
+    # Subset them using the same indices
+    train_data = torch.utils.data.Subset(full_train, train_indices)
+    val_data = torch.utils.data.Subset(full_val, val_indices)
 
-    train_data, val_data = torch.utils.data.random_split(
-        full_train,
-        [n_train, n_val],
-        generator=torch.Generator().manual_seed(42),
-    )
+    # --- 4) Test dataset (always eval transform) ---
 
-    # For validation, override transform to eval_transform
-    val_data.dataset.transform = eval_transform
-
-    # Test dataset (10k images) with EVAL transform
     test_data = torchvision.datasets.FashionMNIST(
         root="data",
         train=False,
-        transform=eval_transform,
         download=True,
+        transform=eval_transform,
     )
 
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=batch_size, shuffle=False)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=False)
+    # --- 5) Wrap everything in DataLoaders ---
+
+    train_loader = torch.utils.data.DataLoader(
+        train_data,
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_data,
+        batch_size=batch_size,
+        shuffle=False,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_data,
+        batch_size=batch_size,
+        shuffle=False,
+    )
 
     return train_loader, val_loader, test_loader
+
 
 
 
@@ -79,10 +116,13 @@ def train_fashion_model(fashion_mnist,
     (You can change the default values or add additional keyword arguments if needed.)
     """
     # 1) Choose device based on USE_GPU flag
-    if USE_GPU and torch.cuda.is_available():
-        device = torch.device("cuda")
+    if USE_GPU and torch.backends.mps.is_available():
+        device = torch.device("mps")        
+    elif USE_GPU and torch.cuda.is_available():
+        device = torch.device("cuda")       
     else:
         device = torch.device("cpu")
+
 
     # 2) Data
     # We ignore 'fashion_mnist' directly and instead use our helper that
@@ -186,9 +226,9 @@ def main():
     # TODO: this may be done within a loop for hyperparameter search / cross-validation
     model_weights = train_fashion_model(
         fashion_mnist,
-        n_epochs=30,          # train longer
-        batch_size=64,
-        learning_rate=5e-4,
+        n_epochs=25,          # train longer
+        batch_size=32,
+        learning_rate=1e-3,
         USE_GPU=True
     )
 
