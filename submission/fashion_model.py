@@ -14,27 +14,29 @@ class Net(nn.Module):
 
         # Convolutional feature extractor
         self.features = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.Conv2d(1, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2),       # 28x28 -> 14x14
 
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2),       # 28x28 -> 14x14
 
-            nn.AdaptiveAvgPool2d(1)            # -> 64 x 1 x 1
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+
+            nn.AdaptiveAvgPool2d(1)            # -> 128 x 1 x 1
         )
+
 
         # Small classifier
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5),
-            nn.Linear(64, num_classes)
+            nn.Linear(128, num_classes)
         )
+
 
         # Weight initialization
         for m in self.modules():
@@ -53,7 +55,8 @@ class Net(nn.Module):
         if x.dim() == 2:
             x = x.view(x.size(0), 1, 28, 28)
 
-        x = self.features(x)          # (B, 64, 1, 1)
-        x = x.view(x.size(0), -1)     # (B, 64)
+        x = self.features(x)          # (B, 128, 1, 1)
+        x = x.view(x.size(0), -1)     # (B, 128)
+
         x = self.classifier(x)        # (B, 10)
         return x

@@ -66,7 +66,7 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
 
 def train_fashion_model(fashion_mnist, 
                         n_epochs, 
-                        batch_size=4,
+                        batch_size=64,
                         learning_rate=0.001,
                         USE_GPU=False,):
     """
@@ -88,8 +88,12 @@ def train_fashion_model(fashion_mnist,
     # 3) Model, loss, optimizer
     model = Net().to(device)
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    optimizer = torch.optim.Adam(
+    model.parameters(),
+    lr=learning_rate,
+    weight_decay=1e-4,      # L2 regularisation to help generalisation
+)
     best_val_acc = 0.0
     best_state_dict = None
 
@@ -178,11 +182,12 @@ def main():
     # TODO: this may be done within a loop for hyperparameter search / cross-validation
     model_weights = train_fashion_model(
         fashion_mnist,
-        n_epochs=15,          # train more so model actually learns
-        batch_size=64,        # sensible batch size
-        learning_rate=1e-3,   # good default
-        USE_GPU=True          # use GPU if available
+        n_epochs=25,          # train longer
+        batch_size=64,
+        learning_rate=1e-3,
+        USE_GPU=True
     )
+
 
     # Save model weights
     # However you tune and evaluate your model, make sure to save the final weights 
