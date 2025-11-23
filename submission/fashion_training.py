@@ -74,10 +74,15 @@ def train_fashion_model(fashion_mnist,
     the function name, or return values, as this will be called during marking!
     (You can change the default values or add additional keyword arguments if needed.)
     """
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # 1) Choose device based on USE_GPU flag
+    if USE_GPU and torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
 
     # 2) Data
+    # We ignore 'fashion_mnist' directly and instead use our helper that
+    # creates train/val/test loaders from Fashion-MNIST.
     train_loader, val_loader, test_loader = get_data_loaders(batch_size=batch_size)
 
     # 3) Model, loss, optimizer
@@ -108,17 +113,11 @@ def train_fashion_model(fashion_mnist,
             best_val_acc = val_acc
             best_state_dict = model.state_dict()
 
-    # 5) (Optional) Evaluate best model on test set for your own reference
+    # 5) Load best weights and evaluate on test set (for your own info)
     if best_state_dict is not None:
-        # Load the best weights back into the model
         model.load_state_dict(best_state_dict)
         test_loss, test_acc = engine.eval(model, test_loader, criterion, device)
         print(f"Final test_loss: {test_loss:.4f}  - test_acc: {test_acc:.4f}")
-    else:
-        # Fallback: if for some reason best_state_dict was never set,
-        # we just keep the current model weights.
-        best_state_dict = model.state_dict()
-
 
     # Return the model's state_dict (weights) - DO NOT CHANGE THIS
     return model.state_dict()
@@ -177,7 +176,13 @@ def main():
 
     # Train model 
     # TODO: this may be done within a loop for hyperparameter search / cross-validation
-    model_weights = train_fashion_model(fashion_mnist, n_epochs=1)
+    model_weights = train_fashion_model(
+        fashion_mnist,
+        n_epochs=15,          # train more so model actually learns
+        batch_size=64,        # sensible batch size
+        learning_rate=1e-3,   # good default
+        USE_GPU=True          # use GPU if available
+    )
 
     # Save model weights
     # However you tune and evaluate your model, make sure to save the final weights 
