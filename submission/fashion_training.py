@@ -26,29 +26,30 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
     so that training and marking use consistent preprocessing.
     """
 
-    # --- 1) Transforms (reuse the ones defined in get_transforms) ---
+   # Loading transforms for training and evaluation
     train_transform = get_transforms(mode='train')
     eval_transform  = get_transforms(mode='eval')
 
-    # --- 2) Base dataset just to get size and indices ---
+    # Loading base training dataset
     base_train = torchvision.datasets.FashionMNIST(
         root="data",
         train=True,
         download=False,
-        transform=None,  # no transform here; we only need length
+        transform=None,  
     )
 
-    n_total = len(base_train)                   # 60,000
-    n_val   = int(val_fraction * n_total)       # e.g. 6,000 for 0.1
-    n_train = n_total - n_val                   # e.g. 54,000
+    n_total = len(base_train)                   
+    n_val   = int(val_fraction * n_total)       
+    n_train = n_total - n_val                   
 
-    # Deterministic split indices (so you can reproduce results)
+
+    # Creating deterministic indices for train/val split
     g = torch.Generator().manual_seed(42)
     indices = torch.randperm(n_total, generator=g)
     train_indices = indices[:n_train]
     val_indices   = indices[n_train:]
 
-    # --- 3) Actual train/val datasets with correct transforms ---
+    # Actual training and validation dataset
     full_train = torchvision.datasets.FashionMNIST(
         root="data",
         train=True,
@@ -65,7 +66,6 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
     train_data = torch.utils.data.Subset(full_train, train_indices)
     val_data   = torch.utils.data.Subset(full_val,   val_indices)
 
-    # --- 4) Test dataset (always eval transform) ---
     test_data = torchvision.datasets.FashionMNIST(
         root="data",
         train=False,
@@ -73,7 +73,6 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
         transform=eval_transform,
     )
 
-    # --- 5) Wrap everything in DataLoaders ---
     train_loader = torch.utils.data.DataLoader(
         train_data,
         batch_size=batch_size,
@@ -139,7 +138,7 @@ def train_fashion_model(fashion_mnist,
         train_loss = engine.train(model, train_loader, criterion, optimizer, device)
         val_loss, val_acc = engine.eval(model, val_loader, criterion, device)
 
-        # 👉 store for plotting
+        # For plotting
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
         val_acc_history.append(val_acc)

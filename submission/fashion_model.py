@@ -21,13 +21,13 @@ class Net(nn.Module):
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2),       # 28x28 -> 14x14
+            nn.MaxPool2d(kernel_size=2),       
 
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
 
-            nn.AdaptiveAvgPool2d(1)            # -> 128 x 1 x 1
+            nn.AdaptiveAvgPool2d(1)            
         )
 
 
@@ -59,8 +59,8 @@ class Net(nn.Module):
         if x.dim() == 2:
             x = x.view(x.size(0), 1, 28, 28)
 
-        x = self.features(x)          # (B, 128, 1, 1)
-        x = x.view(x.size(0), -1)     # (B, 128)
+        x = self.features(x)          
+        x = x.view(x.size(0), -1)    
 
-        x = self.classifier(x)        # (B, 10)
+        x = self.classifier(x)        
         return x
