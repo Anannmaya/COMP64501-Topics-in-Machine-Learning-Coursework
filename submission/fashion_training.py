@@ -13,49 +13,42 @@ import torch, torchvision
 from submission import engine
 from submission.fashion_model import Net
 
+# For plotting the graphs
+train_loss_history = []
+val_loss_history = []
+val_acc_history = []
+
 def get_data_loaders(batch_size=64, val_fraction=0.1):
     """
     Create train, validation and test DataLoaders for Fashion-MNIST.
-    Uses a train/val split of the official training set and a separate test set.
+    Uses a deterministic train/val split of the official training set
+    and a separate test set. Transforms are shared with get_transforms()
+    so that training and marking use consistent preprocessing.
     """
 
-    # --- 1) Define transforms ---
+    # --- 1) Transforms (reuse the ones defined in get_transforms) ---
+    train_transform = get_transforms(mode='train')
+    eval_transform  = get_transforms(mode='eval')
 
-    # Train transform: light augmentation + normalisation
-    train_transform = torchvision.transforms.Compose([
-        torchvision.transforms.RandomHorizontalFlip(p=0.5),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.5,), (0.5,))
-    ])
-
-    # Eval transform: deterministic, no augmentation
-    eval_transform = torchvision.transforms.Compose([
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.5,), (0.5,))
-    ])
-
-    # --- 2) Base dataset to get size and indices ---
-
-    # Load once without transform just to know how many samples we have
+    # --- 2) Base dataset just to get size and indices ---
     base_train = torchvision.datasets.FashionMNIST(
         root="data",
         train=True,
-        download=True,
-        transform=None,   # we won't use this transform
+        download=False,
+        transform=None,  # no transform here; we only need length
     )
 
-    n_total = len(base_train)               # 60,000
-    n_val = int(val_fraction * n_total)     # e.g. 6,000 for 0.1
-    n_train = n_total - n_val               # e.g. 54,000
+    n_total = len(base_train)                   # 60,000
+    n_val   = int(val_fraction * n_total)       # e.g. 6,000 for 0.1
+    n_train = n_total - n_val                   # e.g. 54,000
 
-    # Deterministic split indices
-    generator = torch.Generator().manual_seed(42)
-    indices = torch.randperm(n_total, generator=generator)
+    # Deterministic split indices (so you can reproduce results)
+    g = torch.Generator().manual_seed(42)
+    indices = torch.randperm(n_total, generator=g)
     train_indices = indices[:n_train]
-    val_indices = indices[n_train:]
+    val_indices   = indices[n_train:]
 
-    # --- 3) Actual train/val datasets with different transforms ---
-
+    # --- 3) Actual train/val datasets with correct transforms ---
     full_train = torchvision.datasets.FashionMNIST(
         root="data",
         train=True,
@@ -69,21 +62,18 @@ def get_data_loaders(batch_size=64, val_fraction=0.1):
         transform=eval_transform,
     )
 
-    # Subset them using the same indices
     train_data = torch.utils.data.Subset(full_train, train_indices)
-    val_data = torch.utils.data.Subset(full_val, val_indices)
+    val_data   = torch.utils.data.Subset(full_val,   val_indices)
 
     # --- 4) Test dataset (always eval transform) ---
-
     test_data = torchvision.datasets.FashionMNIST(
         root="data",
         train=False,
-        download=True,
+        download=False,
         transform=eval_transform,
     )
 
     # --- 5) Wrap everything in DataLoaders ---
-
     train_loader = torch.utils.data.DataLoader(
         train_data,
         batch_size=batch_size,
@@ -115,6 +105,12 @@ def train_fashion_model(fashion_mnist,
     the function name, or return values, as this will be called during marking!
     (You can change the default values or add additional keyword arguments if needed.)
     """
+
+    global train_loss_history, val_loss_history, val_acc_history
+    train_loss_history = []
+    val_loss_history = []
+    val_acc_history = []
+
     # 1) Choose device based on USE_GPU flag
     if USE_GPU and torch.backends.mps.is_available():
         device = torch.device("mps")        
@@ -123,31 +119,30 @@ def train_fashion_model(fashion_mnist,
     else:
         device = torch.device("cpu")
 
-
     # 2) Data
-    # We ignore 'fashion_mnist' directly and instead use our helper that
-    # creates train/val/test loaders from Fashion-MNIST.
     train_loader, val_loader, test_loader = get_data_loaders(batch_size=batch_size)
 
     # 3) Model, loss, optimizer
     model = Net().to(device)
     criterion = torch.nn.CrossEntropyLoss()
-
     optimizer = torch.optim.Adam(
-    model.parameters(),
-    lr=learning_rate,
-    weight_decay=1e-4,      # L2 regularisation to help generalisation
-)
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=1e-4,
+    )
+
     best_val_acc = 0.0
     best_state_dict = None
 
     # 4) Training loop over epochs
     for epoch in range(1, n_epochs + 1):
-        # ---- Training step ----
         train_loss = engine.train(model, train_loader, criterion, optimizer, device)
-
-        # ---- Validation step ----
         val_loss, val_acc = engine.eval(model, val_loader, criterion, device)
+
+        # 👉 store for plotting
+        train_loss_history.append(train_loss)
+        val_loss_history.append(val_loss)
+        val_acc_history.append(val_acc)
 
         print(
             f"Epoch {epoch:02d}/{n_epochs} "
@@ -156,7 +151,6 @@ def train_fashion_model(fashion_mnist,
             f"- val_acc: {val_acc:.4f}"
         )
 
-        # ---- Track the best model by validation accuracy ----
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_state_dict = model.state_dict()
@@ -179,20 +173,22 @@ def get_transforms(mode='train'):
     (deterministic) mode during evaluation, so avoid using stochastic transforms like RandomCrop
     or RandomHorizontalFlip unless they can be set to p=0 during eval.
     """
+    mean = (0.5,)
+    std  = (0.5,)
+
     if mode == 'train':
-        tfs = torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(), # convert images to tensors
+        return torchvision.transforms.Compose([
+            torchvision.transforms.RandomHorizontalFlip(p=0.5),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(mean, std),
         ])
-    elif mode == 'eval': # no stochastic transforms, or use p=0
-        tfs = torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(), # convert images to tensors
+    elif mode == 'eval':
+        return torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(mean, std),
         ])
-        for tf in tfs.transforms:
-            if hasattr(tf, 'train'):
-                tf.eval()  # set to eval mode if applicable # type: ignore
     else:
-        raise ValueError(f"Unknown mode {mode} for transforms, must be 'train' or 'eval'.")
-    return tfs
+        raise ValueError("mode must be 'train' or 'eval'")
 
 
 def load_training_data():
@@ -202,7 +198,7 @@ def load_training_data():
     fashion_mnist = torchvision.datasets.FashionMNIST(
         root="./data",
         train=True,
-        download=True,
+        download=False,
     )
     # We load in data as the raw PIL images - recommended to have a look in visualise_dataset.py! 
     # To use them for training or inference, we need to transform them to tensors. 
